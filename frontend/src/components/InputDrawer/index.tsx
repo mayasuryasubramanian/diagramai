@@ -1,23 +1,21 @@
 import { useState, useRef, useEffect } from 'react'
 import { PRESETS } from '../../diagrams'
 import { translate } from '../../agent/translation-agent'
-import type { DiagramJSON } from '../../types'
 import styles from './InputDrawer.module.css'
 
 interface Props {
   active:         string
   onSelectPreset: (id: string) => void
-  onDiagram:      (diagram: DiagramJSON, description: string) => void
+  onGenerated:    (syntax: string, description: string) => void
 }
 
-export default function InputDrawer({ active, onSelectPreset, onDiagram }: Props) {
-  const [open, setOpen]         = useState(false)
-  const [text, setText]         = useState('')
-  const [loading, setLoading]   = useState(false)
-  const [status, setStatus]     = useState<{ type: 'info' | 'error'; msg: string } | null>(null)
-  const [elapsed, setElapsed]   = useState(0)
-  const lastDescRef             = useRef('')
-  const timerRef                = useRef<ReturnType<typeof setInterval> | null>(null)
+export default function InputDrawer({ active, onSelectPreset, onGenerated }: Props) {
+  const [open, setOpen]       = useState(false)
+  const [text, setText]       = useState('')
+  const [loading, setLoading] = useState(false)
+  const [status, setStatus]   = useState<{ type: 'info' | 'error'; msg: string } | null>(null)
+  const [elapsed, setElapsed] = useState(0)
+  const timerRef              = useRef<ReturnType<typeof setInterval> | null>(null)
 
   useEffect(() => {
     return () => { if (timerRef.current) clearInterval(timerRef.current) }
@@ -30,7 +28,6 @@ export default function InputDrawer({ active, onSelectPreset, onDiagram }: Props
     setLoading(true)
     setElapsed(0)
     setStatus({ type: 'info', msg: 'Thinking…' })
-    lastDescRef.current = description
 
     const start = Date.now()
     timerRef.current = setInterval(() => {
@@ -39,12 +36,12 @@ export default function InputDrawer({ active, onSelectPreset, onDiagram }: Props
 
     const result = await translate(description)
 
-    clearInterval(timerRef.current)
+    clearInterval(timerRef.current!)
     timerRef.current = null
 
     if (result.ok) {
       setStatus({ type: 'info', msg: 'Generated' })
-      onDiagram(result.diagram, description)
+      onGenerated(result.syntax, description)
     } else {
       setStatus({ type: 'error', msg: result.error })
     }
@@ -61,7 +58,6 @@ export default function InputDrawer({ active, onSelectPreset, onDiagram }: Props
 
   return (
     <div className={`${styles.drawer} ${open ? styles.open : ''}`}>
-      {/* Drag handle */}
       <button
         className={styles.handle}
         onClick={() => setOpen(v => !v)}
@@ -71,14 +67,11 @@ export default function InputDrawer({ active, onSelectPreset, onDiagram }: Props
         {!open && <span className={styles.peekLabel}>Describe or choose a diagram</span>}
       </button>
 
-      {/* Content */}
       <div className={styles.content}>
-
-        {/* Natural language input — primary */}
         <p className={styles.sectionLabel}>Describe your diagram</p>
         <textarea
           className={styles.textarea}
-          placeholder="e.g. A flowchart showing order processing with stock check and payment decision"
+          placeholder="e.g. A microservices architecture with an API gateway, auth service, user service, and PostgreSQL database"
           rows={3}
           value={text}
           onChange={e => setText(e.target.value)}
@@ -101,12 +94,9 @@ export default function InputDrawer({ active, onSelectPreset, onDiagram }: Props
               )}
             </span>
           )}
-          {!status && (
-            <span className={styles.statusText}>⌘↵ to generate</span>
-          )}
+          {!status && <span className={styles.statusText}>⌘↵ to generate</span>}
         </div>
 
-        {/* Preset examples */}
         <p className={styles.sectionLabel} style={{ marginTop: 20 }}>Examples</p>
         <div className={styles.presets}>
           {PRESETS.map(p => (
@@ -119,7 +109,6 @@ export default function InputDrawer({ active, onSelectPreset, onDiagram }: Props
             </button>
           ))}
         </div>
-
       </div>
     </div>
   )

@@ -10,8 +10,18 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@iconify-json/devicon": "^1.2.62",
+    "@iconify-json/heroicons": "^1.2.3",
+    "@iconify-json/iconoir": "^1.2.11",
+    "@iconify-json/logos": "^1.2.11",
+    "@iconify-json/lucide": "^1.2.102",
+    "@iconify-json/mdi": "^1.2.3",
+    "@iconify-json/ph": "^1.2.2",
+    "@iconify-json/simple-icons": "^1.2.79",
+    "@iconify-json/tabler": "^1.2.33",
     "elkjs": "^0.11.1",
     "libavoid-js": "^0.5.0-beta.5",
+    "mermaid": "^11.14.0",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
     "vite-plugin-pwa": "^1.2.0",
