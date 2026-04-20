@@ -1,0 +1,52 @@
+.canvas {
+  position: fixed;
+  inset: 0;
+  bottom: var(--drawer-peek);
+  background: var(--bg);
+  overflow: auto;
+}
+
+.svg {
+  min-width: 100%;
+  min-height: 100%;
+  display: flex;
+  align-items: safe center;
+  justify-content: safe center;
+  padding: 24px;
+  box-sizing: border-box;
+}
+
+.svg svg {
+  display: block;
+  flex-shrink: 0;
+}
+
+.empty {
+  color: var(--text-secondary);
+  font-size: 1rem;
+  text-align: center;
+}
+
+.error {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-width: 480px;
+  padding: 24px;
+  background: #1a0a0a;
+  border: 1px solid #7f1d1d;
+  border-radius: 8px;
+}
+
+.errorTitle {
+  color: #fca5a5;
+  font-weight: 600;
+  font-size: 0.875rem;
+}
+
+.errorDetail {
+  color: var(--text-secondary);
+  font-size: 0.8125rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+}

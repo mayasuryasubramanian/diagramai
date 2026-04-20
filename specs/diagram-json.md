@@ -1,0 +1,281 @@
+# SPEC: Diagram JSON
+**Version:** 0.4
+**Status:** Approved
+**Depends on:** Plugin Contract spec (v0.4)
+**Blocked by:** OD-02 (rendering format — does not affect this spec)
+
+---
+
+## Overview
+
+Diagram JSON is the machine-readable representation of a diagram's semantic content. It is the output of the Translation Agent and the input to the Space Manager. It is not designed for human authoring.
+
+**It contains:** what components exist, what type they are, what their properties are, and how they relate.
+**It does not contain:** coordinates, layout, or rendering instructions — those are added by the Space Manager in a separate pass.
+
+---
+
+## Wire Format
+
+JSON (UTF-8). Not MessagePack — chosen for universal tooling and debuggability.
+
+---
+
+## Top-Level Structure
+
+```json
+{
+  "diagramai_version": "0.1",
+  "diagram_type":      "flowchart",
+  "diagram_style":     "clean",
+  "components":        [ ]
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `diagramai_version` | string | Diagram JSON format version (semver). Not a plugin version. Used for migration. |
+| `diagram_type` | DiagramType | Layout strategy to use. Translation LLM assigns based on user intent. |
+| `diagram_style` | DiagramStyle | Visual rendering style. Applies to all components. Translation LLM assigns based on user intent. |
+| `components` | Component[] | Flat array of all component instances in the diagram. Order is not significant. |
+
+### DiagramType
+
+| Value | Layout | Connector routing | Typical use |
+|-------|--------|-------------------|-------------|
+| `"flowchart"` | Top-to-bottom | Orthogonal | Process steps, decision trees |
+| `"sequence"` | Left-to-right | Orthogonal | Step-by-step flows, pipelines |
+| `"architecture"` | Left-to-right | Orthogonal | System design, service maps |
+| `"swim-lane"` | Left-to-right within lanes; lanes stack top-to-bottom | Orthogonal | Cross-team processes, responsibilities |
+| `"network"` | Left-to-right | Curved (Bezier) | Infrastructure, topology |
+| `"mind-map"` | Radial outward from center | Curved (Bezier) | Concept maps, brainstorming |
+
+Missing or unrecognised `diagram_type` → Space Manager defaults to `"architecture"`.
+
+### DiagramStyle
+
+| Value | Description |
+|-------|-------------|
+| `"clean"` | Sharp edges, geometric shapes, precise lines. Default. |
+| `"handwritten"` | Rough/sketchy edges, wobbly lines, handwritten-look font. |
+
+`diagram_style` is passed to every plugin's `render` function. The Space Manager layout is identical regardless of style — only rendering changes.
+
+---
+
+## Component Structure
+
+```json
+{
+  "id":     "unique-id",
+  "type":   "plugin-name",
+  "props":  { },
+  "parent": "parent-id" | null,
+  "size":   { "w": 160, "h": 52, "locked": false }
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `id` | string | yes | Stable, unique identifier for this component instance within the diagram. |
+| `type` | string | yes | Must match a registered plugin `name`. Validated at render time. |
+| `props` | object | yes | Fields as defined by the plugin's `schema`. No coordinate fields permitted. |
+| `parent` | string \| null | yes | `id` of the containing component, or `null` if top-level. |
+| `size` | ComponentSize \| undefined | no | Component dimensions set by the Space Manager. Absent before first layout pass. |
+
+### ComponentSize
+
+```ts
+interface ComponentSize {
+  w:      number;   // width in canvas units (set by Space Manager in Phase 1)
+  h:      number;   // height in canvas units (set by Space Manager in Phase 1)
+  locked: boolean;  // true = user-confirmed size; Space Manager must never override
+}
+```
+
+**Lifecycle of `size`:**
+- **Absent** (`undefined`) — component has never been through a layout pass. Translation Agent produces JSON without `size`.
+- **Present, `locked: false`** — Space Manager set this size during a previous layout pass. It may be overridden in the next pass if the Space Manager selects a different mode (stressed/normal/liberal).
+- **Present, `locked: true`** — user explicitly confirmed this size (via feedback). Space Manager must preserve it exactly across all future layout passes. Only a direct user instruction can unlock it.
+
+**The Space Manager always writes `size` back into the `DiagramJSON` it returns** — its output `diagram` is the input `diagram` with all `size` fields filled in. The coordinate map (`coordinates`) contains the final pixel positions; `size` in the component is the Space Manager's chosen dimensions before positioning.
+
+The Translation Agent must never set `locked: true` — only the Master Agent sets `locked: true` in response to a user size confirmation.
+
+---
+
+## ID Format
+
+- Lowercase, hyphen-separated, human-readable where possible
+- Must be unique within the diagram
+- Format: `{type}-{n}` where n is a zero-padded integer (e.g. `process-box-01`, `swim-lane-02`)
+- Generated by the Translation Agent — not authored by humans
+
+---
+
+## Connections
+
+Connections (arrows, edges) are components like any other. They reference source and target components by `id` via their `props`. The arrow plugin's schema defines the `from`, `to`, and any other connection-specific fields.
+
+```json
+{
+  "id":     "arrow-01",
+  "type":   "arrow",
+  "props":  { "from": "step-01", "to": "step-02", "label": "yes" },
+  "parent": null
+}
+```
+
+- `from` and `to` must reference valid component `id` values within the same diagram
+- Validated at render time — invalid references are a structured error returned to Master Agent
+- Connection components may themselves have a `parent` (e.g. an arrow inside a swim lane)
+
+---
+
+## Containment
+
+Hierarchy is expressed via the `parent` field on child components. The structure is a forest (multiple root nodes allowed; no cycles permitted).
+
+```json
+{ "id": "lane-01",    "type": "swim-lane",   "props": { "label": "Plan" },     "parent": null   },
+{ "id": "step-01",    "type": "process-box", "props": { "label": "Research" }, "parent": "lane-01" },
+{ "id": "step-02",    "type": "process-box", "props": { "label": "Draft" },    "parent": "lane-01" },
+{ "id": "arrow-01",   "type": "arrow",       "props": { "from": "step-01", "to": "step-02" }, "parent": null }
+```
+
+Rules:
+- A component may have at most one parent
+- Cycles are invalid (a component cannot be its own ancestor)
+- Both rules validated at parse time before any rendering begins
+
+---
+
+## Standard Component Conventions
+
+These conventions apply to all built-in component plugins. Third-party plugins should follow them.
+
+### `theme_category` (standard prop)
+Every component should include a `theme_category` prop in its schema. The Translation LLM assigns a semantic category; the renderer resolves it to an actual color from the active theme at draw time. The Translation LLM never assigns a color directly.
+
+Valid values: `"infrastructure"` | `"application"` | `"messaging"` | `"security"` | `"actor"` | `"brand"` | `"external"` | `"neutral"`
+
+### Text is always a separate label component
+No component embeds display text directly in its `props`. All text — titles, subtitles, annotations, callouts — is a separate `label` component with an `attached_to` field pointing to the parent component's `id`. The Space Manager places labels relative to their parent.
+
+### Attached components
+Some components exist only in relation to another (labels, icons, badges). These include an `attached_to` prop containing the `id` of their parent component. The Space Manager uses this to compute their position relative to the parent's bounds.
+
+### Icons (imported from open source libraries)
+Icon components carry their SVG path data directly in `props` — no external lookup at render time. This ensures reproducibility. All imported icon paths are normalized to a `0 0 100 100` coordinate space at import time. Icon presentation (outline/filled) is set by the active theme at render time, never in the spec.
+
+Icon `props` must include:
+```json
+{
+  "path_data":    "SVG path string normalized to 0 0 100 100",
+  "viewbox":      "0 0 100 100",
+  "attached_to":  "parent-component-id",
+  "theme_category": "...",
+  "meta": {
+    "concept":           "plain English primary concept",
+    "qualifier":         "string | null",
+    "tags":              ["max 8 keywords for Translation LLM selection"],
+    "diagram_contexts":  ["system design", "devops", "architecture", ...]
+  }
+}
+```
+
+### Connectors (arrows and edges)
+Connector components reference source and target by `id` via `props`, plus carry semantic style fields. The Translation LLM decides style based on the relationship type — never based on visual preference.
+
+Connector `props` must include:
+```json
+{
+  "from":     "source-component-id",
+  "to":       "target-component-id",
+  "semantic": "plain English description of the relationship",
+  "style": {
+    "line":      "solid | dashed | dotted",
+    "direction": "forward | backward | bidirectional | none",
+    "weight":    "normal | heavy | light"
+  },
+  "theme_category": "neutral"
+}
+```
+
+Style semantics:
+- `line`: `solid` = synchronous/direct, `dashed` = async/event, `dotted` = weak/annotation
+- `direction`: `forward` = arrowhead at target (most common), `backward` = at source, `bidirectional` = both, `none` = plain line
+- `weight`: `normal` = default, `heavy` = primary/critical path, `light` = secondary/background
+
+### Badges
+Badge components attach to a node and render as small overlays (circled step numbers, status dots, count pills). They include a `preferred_position` prop as a hint to the Space Manager — not a constraint. If the preferred position causes overlap, the Space Manager moves the badge.
+
+Badge `props` must include:
+```json
+{
+  "attached_to":        "parent-component-id",
+  "badge_type":         "step | status | count",
+  "value":              "integer or string",
+  "preferred_position": "top-left | top-right | bottom-left | bottom-right | top-center | center",
+  "theme_category":     "..."
+}
+```
+
+---
+
+## What Props Must NOT Contain
+
+- `x`, `y`, `width`, `height`, or any coordinate/position fields — use `size` on the component itself, or the coordinate map from the Space Manager
+- Actual color values — use `theme_category` instead; renderer resolves to color from theme
+- Layout hints (margin, padding, alignment) — these belong to the Space Manager
+- Embedded display text in non-label components — always use a separate label component
+
+---
+
+## Validation Rules (enforced before pipeline proceeds)
+
+| Rule | Stage |
+|------|-------|
+| `diagramai_version` is present and recognized | Parse time |
+| `components` is an array (may be empty) | Parse time |
+| All component `id` values are unique | Parse time |
+| All `parent` references point to a valid `id` | Parse time |
+| No cycles in parent chain | Parse time |
+| `from`/`to` in connection props point to valid `id` values | Render time |
+| `type` matches a registered plugin name | Render time |
+| `props` validates against the plugin's schema | Render time |
+
+Parse-time errors are returned as structured errors to the Master Agent before the Space Manager is invoked. Render-time errors are returned by the Workflow Engine.
+
+---
+
+## Example: Simple Flowchart
+
+```json
+{
+  "diagramai_version": "0.1",
+  "components": [
+    { "id": "start-01",       "type": "start-end",    "props": { "label": "Start" },           "parent": null },
+    { "id": "process-box-01", "type": "process-box",  "props": { "label": "Collect data" },    "parent": null },
+    { "id": "decision-01",    "type": "decision-box", "props": { "label": "Data valid?" },     "parent": null },
+    { "id": "process-box-02", "type": "process-box",  "props": { "label": "Process data" },   "parent": null },
+    { "id": "start-02",       "type": "start-end",    "props": { "label": "End" },             "parent": null },
+    { "id": "arrow-01",       "type": "arrow",        "props": { "from": "start-01",       "to": "process-box-01", "label": "" }, "parent": null },
+    { "id": "arrow-02",       "type": "arrow",        "props": { "from": "process-box-01", "to": "decision-01",    "label": "" }, "parent": null },
+    { "id": "arrow-03",       "type": "arrow",        "props": { "from": "decision-01",    "to": "process-box-02", "label": "yes" }, "parent": null },
+    { "id": "arrow-04",       "type": "arrow",        "props": { "from": "decision-01",    "to": "start-01",       "label": "no" }, "parent": null },
+    { "id": "arrow-05",       "type": "arrow",        "props": { "from": "process-box-02", "to": "start-02",       "label": "" }, "parent": null }
+  ]
+}
+```
+
+---
+
+## Open Items
+
+| ID | Item |
+|----|------|
+| OD-02 | Rendering format does not affect this spec |
+| — | Styling fields in `props` (colors, fonts) — deferred until styling spec |
+| — | Whether `props` in connection components can reference positions on the source/target boundary (e.g. entry/exit points) — defer to Space Manager spec |
+| — | Whether `size` should also carry a `mode` field (`"stressed"` \| `"normal"` \| `"liberal"`) to record which mode produced it — implementation decision |
