@@ -12,11 +12,12 @@ architecture-beta
 
   client:B --> T:lb
   lb:B --> T:gateway
-  gateway:B --> T:auth
+  gateway:L --> R:auth
   gateway:B --> T:user
-  gateway:B --> T:order
+  gateway:R --> L:order
+  auth:R --> L:db
   user:B --> T:db
-  order:B --> T:db
+  order:L --> R:db
 `
 
 export default architectureComplex

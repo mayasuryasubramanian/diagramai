@@ -39,6 +39,17 @@ architecture-beta
 Exit/entry sides: T (top), B (bottom), L (left), R (right)
 Use B --> T for top-down flow, R --> L for left-right flow.
 
+**Fan-out rule (one → many):** Distribute exit sides so targets are placed horizontally:
+- 2 targets: one uses L, one uses R from source
+- 3 targets: use L (left), B (centre), R (right) from source
+
+**Fan-in rule (many → one):** When horizontally-spread nodes converge to one shared node, use lateral sides so constraints are consistent:
+- Centre source to shared: centre:B --> T:shared
+- Left source to shared:   left:R --> L:shared   (shared is RIGHT of left-source)
+- Right source to shared:  right:L --> R:shared  (shared is LEFT of right-source)
+
+Never use B --> T from all three sources into one shared node — it creates contradictory layout constraints.
+
 ### Available icons (use these exact names)
 **Cloud & Infrastructure**
 - logos:amazon-web-services, logos:google-cloud, logos:microsoft-azure
@@ -73,10 +84,10 @@ architecture-beta
   service cache(logos:redis)[Redis]
 
   client:B --> T:gateway
-  gateway:B --> T:auth
+  gateway:L --> R:auth
   gateway:B --> T:api
+  gateway:R --> L:cache
   api:B --> T:db
-  api:R --> L:cache
 \`\`\`
 
 ---

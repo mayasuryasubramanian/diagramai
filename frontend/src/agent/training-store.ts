@@ -52,9 +52,9 @@ const SEED_EXAMPLES: TrainingExample[] = [
   service db(logos:postgresql)[PostgreSQL]
 
   browser:B --> T:gateway
-  gateway:B --> T:auth
+  gateway:L --> R:auth
   gateway:B --> T:userSvc
-  auth:B --> T:db
+  auth:R --> L:db
   userSvc:B --> T:db`,
   },
   {
